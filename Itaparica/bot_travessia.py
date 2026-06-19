@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 import requests
 from datetime import datetime
+from flask import Flask
+import threading
 
 # Carrega as variáveis do arquivo .env
 load_dotenv()
@@ -46,7 +48,7 @@ def enviar_notificacao(mensagem):
 
 def monitorar_travessia():
     with sync_playwright() as p:
-        # headless=True para rodar invisível no seu computador e não atrapalhar
+        # headless=True para rodar invisível no servidor
         browser = p.chromium.launch(headless=True)
         context = browser.new_context()
         page = context.new_page()
@@ -62,7 +64,7 @@ def monitorar_travessia():
 
             page.wait_for_timeout(4000)
 
-            # --- MENU (Exatamente igual ao seu código original) ---
+            # --- MENU ORIGINAL ---
             page.click("text=Tickets")
             page.click("text=Hora Marcada - Veículo")
             
@@ -88,7 +90,7 @@ def monitorar_travessia():
                 page.click('[id="form:saveRequestButton"]')
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] Aguardando o site carregar os resultados...")
 
-                # Aumentamos o tempo aqui para garantir que a tabela da busca anterior suma e a nova carregue
+                # Tempo para a tabela carregar sem pular a paginação
                 page.wait_for_timeout(6000)
 
                 alertas_vagas = []
@@ -131,7 +133,7 @@ def monitorar_travessia():
                     )
                     enviar_notificacao(mensagem)
                 else:
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Nenhuma vaga disponível para os horários selecionados.")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Nenhuma vaga em {data_atual} ({sentido_atual}).")
 
         except Exception as e:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro durante a navegação: {e}")
@@ -139,13 +141,19 @@ def monitorar_travessia():
             browser.close()
 
 # ==========================================
-# 3. LOOP DE EXECUÇÃO LOCAL
+# 3. SERVIDOR FLASK (PARA O RENDER) E LOOP DO BOT
 # ==========================================
-if __name__ == "__main__":
-    print("Iniciando o bot de monitoramento do Ferry Boat...")
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot do Ferry Boat está rodando e monitorando vagas na nuvem!"
+
+def iniciar_bot():
+    print("Iniciando o bot de monitoramento do Ferry Boat na nuvem...")
     
     datas_monitoradas = ", ".join([b["data"] for b in BUSCAS])
-    mensagem_inicio = f"✅ *Bot Iniciado!*\nMonitorando vagas no Ferry Boat para: {datas_monitoradas}."
+    mensagem_inicio = f"✅ *Bot Iniciado na Nuvem (Render)!*\nMonitorando vagas para os dias: {datas_monitoradas}."
     enviar_notificacao(mensagem_inicio)
 
     while True:
@@ -154,3 +162,13 @@ if __name__ == "__main__":
         tempo_espera = 300 
         print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Aguardando {tempo_espera // 60} minutos para a próxima checagem...\n")
         time.sleep(tempo_espera)
+
+if __name__ == "__main__":
+    # Inicia o bot em uma thread separada para não travar o servidor web
+    thread_bot = threading.Thread(target=iniciar_bot)
+    thread_bot.daemon = True
+    thread_bot.start()
+
+    # Inicia o servidor web na porta que o Render exigir
+    porta = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=porta)
