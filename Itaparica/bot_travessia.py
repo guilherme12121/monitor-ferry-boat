@@ -16,9 +16,21 @@ SENHA_SIGOM = os.environ.get("SENHA_SIGOM")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# Defina a data e a lista de horários permitidos
-DATA_DESEJADA = "10/06/2026"
-HORARIOS_DESEJADOS = ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
+# Configuração de datas e trechos específicos
+BUSCAS = [
+    {
+        "data": "19/06/2026",
+        "trecho": "SÃO JOAQUIM (SALVADOR) / BOM DESPACHO (ITAPARICA)",
+        "sentido": "Salvador ➔ Itaparica"
+    },
+    {
+        "data": "24/06/2026",
+        "trecho": "BOM DESPACHO (ITAPARICA) / SÃO JOAQUIM (SALVADOR)",
+        "sentido": "Itaparica ➔ Salvador"
+    }
+]
+
+HORARIOS_DESEJADOS = ["15:00", "16:00", "17:00", "18:00", "19:00", "20:00"]
 
 # ==========================================
 # 2. FUNÇÕES DO BOT
@@ -50,54 +62,76 @@ def monitorar_travessia():
 
             page.wait_for_timeout(4000)
 
+            # --- MENU (Exatamente igual ao seu código original) ---
             page.click("text=Tickets")
             page.click("text=Hora Marcada - Veículo")
-
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Preenchendo os filtros para {DATA_DESEJADA}...")
             
-            page.evaluate('(data) => { document.getElementById("form:dataViagem_input").removeAttribute("readonly"); document.getElementById("form:dataViagem_input").value = data; }', DATA_DESEJADA)
+            page.wait_for_timeout(3000)
+
+            # --- LOOP DE BUSCAS ---
+            for busca in BUSCAS:
+                data_atual = busca["data"]
+                trecho_atual = busca["trecho"]
+                sentido_atual = busca["sentido"]
+
+                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Preenchendo os filtros para {data_atual} ({sentido_atual})...")
+                
+                # Preenche a data
+                page.evaluate('(data) => { document.getElementById("form:dataViagem_input").removeAttribute("readonly"); document.getElementById("form:dataViagem_input").value = data; }', data_atual)
+                
+                # Preenche o trecho
+                page.click('[id="form:trecho"] .ui-selectonemenu-trigger')
+                page.wait_for_timeout(1000)
+                page.click(f'li:has-text("{trecho_atual}")')
             
-            page.click('[id="form:trecho"] .ui-selectonemenu-trigger')
-            page.click('li:has-text("SÃO JOAQUIM (SALVADOR) / BOM DESPACHO (ITAPARICA)")')
-            
-            page.click('[id="form:saveRequestButton"]')
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Aguardando o site carregar os resultados...")
+                # Clica em Pesquisar
+                page.click('[id="form:saveRequestButton"]')
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Aguardando o site carregar os resultados...")
 
-            page.wait_for_timeout(5000)
+                # Aumentamos o tempo aqui para garantir que a tabela da busca anterior suma e a nova carregue
+                page.wait_for_timeout(6000)
 
-            alertas_vagas = []
+                alertas_vagas = []
 
-            for numero_pagina in range(1, 4):
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Lendo horários da página {numero_pagina}...")
-                
-                linhas = page.locator('[id="form:dataTableListaViagens"] tbody tr').all()
-                
-                for linha in linhas:
-                    colunas = linha.locator('td').all()
-                    if len(colunas) >= 5:
-                        horario_tabela = colunas[2].inner_text().strip()
-                        vagas_texto = colunas[4].inner_text().strip()
-                        
-                        vagas_disponiveis = int(vagas_texto) if vagas_texto.isdigit() else 0
+                # --- PAGINAÇÃO ---
+                for numero_pagina in range(1, 4):
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Lendo horários da página {numero_pagina}...")
+                    
+                    linhas = page.locator('[id="form:dataTableListaViagens"] tbody tr').all()
+                    
+                    for linha in linhas:
+                        colunas = linha.locator('td').all()
+                        if len(colunas) >= 5:
+                            horario_tabela = colunas[2].inner_text().strip()
+                            vagas_texto = colunas[4].inner_text().strip()
+                            
+                            vagas_disponiveis = int(vagas_texto) if vagas_texto.isdigit() else 0
 
-                        if horario_tabela in HORARIOS_DESEJADOS and vagas_disponiveis > 0:
-                            alertas_vagas.append(f"⏰ {horario_tabela} -> 🚗 Vagas: {vagas_disponiveis}")
+                            if horario_tabela in HORARIOS_DESEJADOS and vagas_disponiveis > 0:
+                                alertas_vagas.append(f"⏰ {horario_tabela} -> 🚗 Vagas: {vagas_disponiveis}")
 
-                botao_proximo = page.locator('.ui-paginator-next').first
-                classe_botao = botao_proximo.get_attribute('class') or ""
-                
-                if botao_proximo.count() > 0 and 'ui-state-disabled' not in classe_botao:
-                    botao_proximo.click()
-                    page.wait_for_timeout(3000)
+                    botao_proximo = page.locator('.ui-paginator-next').first
+                    classe_botao = botao_proximo.get_attribute('class') or ""
+                    
+                    if botao_proximo.count() > 0 and 'ui-state-disabled' not in classe_botao:
+                        botao_proximo.click()
+                        page.wait_for_timeout(3000)
+                    else:
+                        break 
+
+                # --- ENVIO DE MENSAGEM ---
+                if alertas_vagas:
+                    linhas_mensagem = "\n".join(alertas_vagas)
+                    mensagem = (
+                        f"🚨 VAGA(S) ENCONTRADA(S) NO FERRY! 🚨\n\n"
+                        f"🗓 Data: {data_atual}\n"
+                        f"⛴️ Sentido: {sentido_atual}\n\n"
+                        f"{linhas_mensagem}\n\n"
+                        f"Corra no site para comprar!"
+                    )
+                    enviar_notificacao(mensagem)
                 else:
-                    break 
-
-            if alertas_vagas:
-                linhas_mensagem = "\n".join(alertas_vagas)
-                mensagem = f"🚨 VAGA(S) ENCONTRADA(S) NO FERRY! 🚨\n\n🗓 Data: {DATA_DESEJADA}\n\n{linhas_mensagem}\n\nCorra no site para comprar!"
-                enviar_notificacao(mensagem)
-            else:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Nenhuma vaga disponível para os horários selecionados.")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Nenhuma vaga disponível para os horários selecionados.")
 
         except Exception as e:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro durante a navegação: {e}")
@@ -110,12 +144,13 @@ def monitorar_travessia():
 if __name__ == "__main__":
     print("Iniciando o bot de monitoramento do Ferry Boat...")
     
-    mensagem_inicio = f"✅ *Bot Iniciado Localmente!*\nMonitorando vagas no Ferry Boat para o dia {DATA_DESEJADA}."
+    datas_monitoradas = ", ".join([b["data"] for b in BUSCAS])
+    mensagem_inicio = f"✅ *Bot Iniciado!*\nMonitorando vagas no Ferry Boat para: {datas_monitoradas}."
     enviar_notificacao(mensagem_inicio)
 
     while True:
         monitorar_travessia()
         
         tempo_espera = 300 
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Aguardando {tempo_espera // 60} minutos para a próxima checagem...\n")
+        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Aguardando {tempo_espera // 60} minutos para a próxima checagem...\n")
         time.sleep(tempo_espera)
