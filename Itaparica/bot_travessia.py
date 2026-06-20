@@ -35,7 +35,8 @@ def monitorar_travessia():
 
         try:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Acessando o portal...")
-            page.goto("https://portalsigomits.internacionaltravessias.com.br:8744/wbc-st5/ui/login.faces?uat=12", timeout=60000)
+            # Aumentamos o timeout e pedimos para não esperar as imagens lentas
+            page.goto("https://portalsigomits.internacionaltravessias.com.br:8744/wbc-st5/ui/login.faces?uat=12", timeout=120000, wait_until="domcontentloaded")
 
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Preenchendo login...")
             page.fill('[id="frm_login_component:formLogin:username"]', USUARIO_SIGOM)
@@ -92,7 +93,14 @@ def monitorar_travessia():
                     print(f"[{datetime.now().strftime('%H:%M:%S')}] Nenhuma vaga em {data_atual}.")
 
         except Exception as e:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro: {e}")
+            # Captura o erro e te avisa no Telegram
+            erro_resumo = str(e)[:150] 
+            msg_erro = f"⚠️ ALERTA DO BOT ⚠️\nO monitoramento falhou e eu parei de funcionar!\n\nMotivo:\n{erro_resumo}"
+            enviar_notificacao(msg_erro)
+            
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro na execução: {e}")
+            raise e  # Força o erro no GitHub Actions para acender a luz vermelha lá também
+            
         finally:
             context.close()
             browser.close()
