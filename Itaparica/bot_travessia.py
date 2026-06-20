@@ -1,8 +1,11 @@
 import os
+import time
+import threading
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 import telebot
 from datetime import datetime
+from flask import Flask
 
 # Carrega as variáveis de ambiente
 load_dotenv()
@@ -20,12 +23,16 @@ BUSCAS = [
 HORARIOS_DESEJADOS = ["15:00", "16:00", "17:00", "18:00", "19:00", "20:00"]
 
 def enviar_notificacao(mensagem):
-    try:
-        bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
-        bot.send_message(TELEGRAM_CHAT_ID, mensagem)
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Notificação enviada com sucesso no Telegram!")
-    except Exception as e:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro no Telegram: {e}")
+    max_tentativas = 3
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+            bot.send_message(TELEGRAM_CHAT_ID, mensagem, timeout=60)
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Notificação enviada com sucesso no Telegram!")
+            break 
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro no Telegram (Tentativa {tentativa}/{max_tentativas}): {e}")
+            time.sleep(5)
 
 def monitorar_travessia():
     with sync_playwright() as p:
@@ -35,7 +42,6 @@ def monitorar_travessia():
 
         try:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Acessando o portal...")
-            # Aumentamos o timeout e pedimos para não esperar as imagens lentas
             page.goto("https://portalsigomits.internacionaltravessias.com.br:8744/wbc-st5/ui/login.faces?uat=12", timeout=120000, wait_until="domcontentloaded")
 
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Preenchendo login...")
@@ -93,17 +99,37 @@ def monitorar_travessia():
                     print(f"[{datetime.now().strftime('%H:%M:%S')}] Nenhuma vaga em {data_atual}.")
 
         except Exception as e:
-            # Captura o erro e te avisa no Telegram
             erro_resumo = str(e)[:150] 
-            msg_erro = f"⚠️ ALERTA DO BOT ⚠️\nO monitoramento falhou e eu parei de funcionar!\n\nMotivo:\n{erro_resumo}"
+            msg_erro = f"⚠️ ALERTA DO BOT ⚠️\nO site do Sigom falhou ou está lento!\n\nMotivo:\n{erro_resumo}"
             enviar_notificacao(msg_erro)
-            
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro na execução: {e}")
-            raise e  # Força o erro no GitHub Actions para acender a luz vermelha lá também
-            
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro: {e}")
         finally:
             context.close()
             browser.close()
 
+# ==========================================
+# 3. SERVIDOR FLASK (RENDER) E LOOP
+# ==========================================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot do Ferry Boat está rodando a todo vapor!"
+
+def iniciar_bot():
+    print("Iniciando o bot de monitoramento do Ferry Boat...")
+    enviar_notificacao("✅ *Bot Iniciado no Render!*\nAcordei e estou monitorando as vagas para o São João.")
+
+    while True:
+        monitorar_travessia()
+        tempo_espera = 300 
+        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Aguardando 5 minutos...\n")
+        time.sleep(tempo_espera)
+
 if __name__ == "__main__":
-    monitorar_travessia()
+    thread_bot = threading.Thread(target=iniciar_bot)
+    thread_bot.daemon = True
+    thread_bot.start()
+
+    porta = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=porta)
