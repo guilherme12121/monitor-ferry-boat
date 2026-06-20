@@ -50,8 +50,12 @@ def monitorar_travessia():
             page.click('[id="frm_login_component:formLogin:btnConectarLogin"]')
 
             page.wait_for_timeout(4000)
+            
+            # --- CORREÇÃO DO MENU APLICADA AQUI ---
             page.click("text=Tickets")
-            page.click("text=Hora Marcada - Veículo")
+            page.wait_for_timeout(2000) # Espera 2 segundos para a animação do menu descer
+            page.click("text=Hora Marcada - Veículo", force=True) # Força o clique no elemento
+            
             page.wait_for_timeout(3000)
 
             for busca in BUSCAS:
